@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Диспетчер возвратов</title>
+<style>
+  :root {
+    --bg: #f5f6f3; --panel: #ffffff; --ink: #1d2320; --muted: #66706a; --line: #dfe3dc;
+    --accent: #2f7d4f; --accent-soft: #e4f1e8;
+    --approve: #2f7d4f; --deny: #b3402e; --info: #2c6fb0; --manual: #b7791f; --dup: #6b5bb5;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--ink); background: var(--bg); }
+  header { display: flex; align-items: center; gap: 16px; padding: 12px 20px; background: var(--panel); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 2; }
+  header h1 { font-size: 17px; margin: 0; flex: 1; }
+  header h1 span { color: var(--accent); }
+  .toggle { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .toggle button { border: 0; background: none; padding: 6px 14px; cursor: pointer; font: inherit; }
+  .toggle button.on { background: var(--accent); color: #fff; }
+  button.action { border: 1px solid var(--accent); background: var(--accent); color: #fff; padding: 7px 14px; border-radius: 8px; cursor: pointer; font: inherit; }
+  button.ghost { background: none; color: var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+  main { display: grid; grid-template-columns: 300px 1fr; gap: 16px; padding: 16px 20px; max-width: 1400px; margin: 0 auto; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+  .queue { padding: 6px; max-height: calc(100vh - 90px); overflow: auto; position: sticky; top: 70px; }
+  .queue .item { padding: 8px 10px; border-radius: 8px; cursor: pointer; display: grid; gap: 2px; }
+  .queue .item:hover { background: var(--bg); }
+  .queue .item.on { background: var(--accent-soft); }
+  .queue .id { font-weight: 600; display: flex; justify-content: space-between; gap: 6px; }
+  .queue .subject { color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card { display: grid; gap: 14px; align-content: start; }
+  h2 { margin: 0 0 4px; font-size: 18px; }
+  h3 { margin: 14px 0 6px; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  .panel > h3:first-child, .grid2 > div > h3:first-child { margin-top: 0; }
+  .meta { color: var(--muted); }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--bg); color: var(--muted); white-space: nowrap; }
+  .r-RECOMMEND_APPROVE, .d-APPROVE { background: #e2f2e7; color: var(--approve); }
+  .r-RECOMMEND_DENY, .d-DENY { background: #f8e5e1; color: var(--deny); }
+  .r-NEED_MORE_INFORMATION, .d-REQUEST_INFO { background: #e2edf8; color: var(--info); }
+  .r-MANUAL_REVIEW { background: #f8eedd; color: var(--manual); }
+  .r-DUPLICATE_OR_PROCESSED, .d-DUPLICATE { background: #ebe8f7; color: var(--dup); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .msg { border-left: 3px solid var(--line); padding: 4px 10px; margin: 8px 0; white-space: pre-wrap; }
+  .msg.manager { border-color: var(--accent); }
+  .msg small { display: block; color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; }
+  td, th { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; }
+  ul { margin: 4px 0; padding-left: 18px; }
+  textarea, select, input { width: 100%; font: inherit; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+  textarea { min-height: 110px; resize: vertical; }
+  label { display: grid; gap: 4px; margin-bottom: 10px; color: var(--muted); }
+  .draft { white-space: pre-wrap; background: var(--bg); padding: 10px; border-radius: 8px; }
+  .error { color: var(--deny); }
+  .ok { color: var(--approve); }
+  details summary { cursor: pointer; color: var(--muted); }
+  .log td { font-size: 12px; }
+  .empty { color: var(--muted); padding: 30px; text-align: center; }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; padding: 12px 16px; } .queue { position: static; max-height: 260px; } .grid2 { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Клевер Маркет · <span>диспетчер возвратов</span></h1>
+  <div class="toggle" role="group" aria-label="Роль">
+    <button data-role="manager" class="on">Менеджер</button>
+    <button data-role="customer">Клиент</button>
+  </div>
+  <button class="action ghost" id="reset">Сбросить данные</button>
+</header>
+<main>
+  <aside class="panel queue" id="queue"></aside>
+  <section class="card" id="card"><div class="panel empty">Выберите обращение в очереди</div></section>
+</main>
+<script>
+const ROUTES = {
+  RECOMMEND_APPROVE: "Рекомендует одобрить",
+  RECOMMEND_DENY: "Рекомендует отказать",
+  NEED_MORE_INFORMATION: "Нужны сведения",
+  MANUAL_REVIEW: "Ручной разбор",
+  DUPLICATE_OR_PROCESSED: "Повторное",
+};
+const DECISIONS = { APPROVE: "Одобрить возврат", DENY: "Отказать", DUPLICATE: "Закрыть как повторное", REQUEST_INFO: "Запросить сведения" };
+const ROUTE_DECISION = { RECOMMEND_APPROVE: "APPROVE", RECOMMEND_DENY: "DENY", DUPLICATE_OR_PROCESSED: "DUPLICATE", NEED_MORE_INFORMATION: "REQUEST_INFO" };
+const STATES = {
+  NEW: "Новое", AWAITING_MANAGER: "Ждёт менеджера", WAITING_CUSTOMER: "Ждёт клиента",
+  CLOSED_APPROVED: "Одобрено", CLOSED_DENIED: "Отказано", CLOSED_DUPLICATE: "Повторное",
+};
+const SOURCES = { letter: "письмо", order: "заказ", history: "история", policy: "политика" };
+
+let role = "manager";
+let selected = null;
+
+const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const list = (items) => items?.length ? `<ul>${items.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>` : `<span class="meta">—</span>`;
+const when = (iso) => iso ? new Date(iso).toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" }) : "";
+const badge = (cls, text) => `<span class="badge ${cls}">${esc(text)}</span>`;
+
+async function api(path, options = {}, as = role) {
+  const response = await fetch(path, {
+    ...options,
+    headers: { "Content-Type": "application/json", "X-Role": as, ...(options.headers || {}) },
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || response.statusText);
+  return data;
+}
+
+async function loadQueue() {
+  const queue = document.getElementById("queue");
+  if (role === "customer") {
+    queue.innerHTML = `<div style="padding:8px"><label>Номер вашего обращения
+      <input id="own-case" value="${esc(selected || "RC-6001")}"></label>
+      <button class="action" id="open-own">Открыть</button></div>`;
+    document.getElementById("open-own").onclick = () => select(document.getElementById("own-case").value.trim());
+    return;
+  }
+  const { cases } = await api("/api/cases");
+  queue.innerHTML = cases.map((c) => `
+    <div class="item ${c.case_id === selected ? "on" : ""}" data-id="${esc(c.case_id)}">
+      <div class="id">${esc(c.case_id)} ${c.decision ? badge("d-" + c.decision, STATES[c.state]) : c.route ? badge("r-" + c.route, ROUTES[c.route]) : badge("", STATES[c.state])}</div>
+      <div class="subject">${esc(c.subject)}</div>
+    </div>`).join("");
+  queue.querySelectorAll(".item").forEach((el) => (el.onclick = () => select(el.dataset.id)));
+}
+
+async function select(id) {
+  selected = id;
+  const card = document.getElementById("card");
+  try {
+    const data = await api(`/api/cases/${encodeURIComponent(id)}`);
+    card.innerHTML = role === "manager" ? managerCard(data) : customerCard(data);
+    bind(data);
+  } catch (error) {
+    card.innerHTML = `<div class="panel error">${esc(error.message)}</div>`;
+  }
+  if (role === "manager") loadQueue();
+}
+
+function dialogHtml(messages) {
+  return messages.map((m) => `<div class="msg ${m.author}"><small>${m.author === "customer" ? "Клиент" : "Служба поддержки"} · ${esc(when(m.created_at))}</small>${esc(m.body)}</div>`).join("");
+}
+
+function managerCard(d) {
+  const c = d.case, rec = d.recommendation, o = d.order;
+  const items = o.items.map((i) => `<tr><td>${esc(i.name)}</td><td>${esc(i.category)}</td><td>${i.price_rub.toLocaleString("ru-RU")} ₽</td></tr>`).join("");
+  const history = d.history.length ? d.history.map((h) => `<tr><td>${esc(h.record_id)}</td><td>${esc(h.status)}</td><td>${esc(h.summary)}</td><td>${esc(h.authorization_reference || "—")}</td></tr>`).join("") : `<tr><td colspan="4" class="meta">Записей нет</td></tr>`;
+  const canAnalyze = ["NEW", "AWAITING_MANAGER"].includes(c.state);
+  return `
+  <div class="panel">
+    <h2>${esc(c.case_id)} · ${esc(c.subject)}</h2>
+    <div class="meta">${esc(c.sender_name)} · заказ ${esc(c.order_number)} · ${esc(when(c.opened_at))} · ${badge("", STATES[c.state])}</div>
+  </div>
+  <div class="grid2">
+    <div class="panel"><h3>Ход диалога</h3>${dialogHtml(d.dialog)}</div>
+    <div class="panel">
+      <h3>Заказ</h3>
+      <table><tr><th>Товар</th><th>Категория</th><th>Цена</th></tr>${items}</table>
+      <p>Доставлен ${esc(o.order.delivered_at)} · дней до обращения: <b>${o.computed.days_since_delivery}</b> из ${o.computed.return_window_days}
+      ${o.computed.within_return_window ? "" : `<span class="error">— срок истёк</span>`}
+      ${o.computed.high_value ? `<br><span class="error">Дорогая позиция: от ${o.computed.high_value_threshold_rub.toLocaleString("ru-RU")} ₽</span>` : ""}
+      <br>Правила категории: ${esc(o.computed.category_rules.join(", "))}</p>
+      <h3>История по заказу</h3>
+      <table><tr><th>Запись</th><th>Статус</th><th>Итог</th><th>Разрешение</th></tr>${history}</table>
+    </div>
+  </div>
+  <div class="panel">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+      <h3 style="margin:0">Рекомендация агента</h3>
+      ${canAnalyze ? `<button class="action" id="analyze">${rec ? "Разобрать заново" : "Разобрать агентом"}</button>` : ""}
+    </div>
+    <div id="analyze-status" class="meta"></div>
+    ${rec ? recommendationHtml(rec, d.run) : `<p class="meta">Агент ещё не разбирал обращение.</p>`}
+  </div>
+  ${rec ? decisionHtml(d) : ""}
+  <div class="panel"><details><summary>Журнал (${d.audit.length})</summary>
+    <table class="log"><tr><th>Время</th><th>Кто</th><th>Событие</th><th>Подробности</th></tr>
+    ${d.audit.map((a) => `<tr><td>${esc(when(a.ts))}</td><td>${esc(a.actor)}</td><td>${esc(a.event)}</td><td>${esc(JSON.stringify(a.details))}</td></tr>`).join("")}</table>
+  </details></div>`;
+}
+
+function recommendationHtml(rec, run) {
+  const facts = rec.facts.map((f) => `<tr><td>${esc(f.name)}</td><td>${esc(f.value)}</td><td>${esc(SOURCES[f.source] || f.source)}</td></tr>`).join("");
+  const rules = rec.rules_applied.map((r) => `<li><b>${esc(r.rule_id)}</b> — ${esc(r.how)}</li>`).join("");
+  return `
+    <p>${badge("r-" + rec.route, ROUTES[rec.route])} ${esc(rec.summary)}</p>
+    ${run.fallback ? `<p class="error">Результат модели не прошёл серверную проверку: ${esc(run.guard_errors.join("; "))}</p>` : `<p class="meta">Модель ${esc(run.model)} · прочитано: ${esc(run.tools_used.join(", "))} · проверка сервера пройдена${run.guard_errors.length ? ` со 2-й попытки` : ""}</p>`}
+    <div class="grid2">
+      <div><h3>Найденные факты</h3><table><tr><th>Факт</th><th>Значение</th><th>Источник</th></tr>${facts}</table></div>
+      <div>
+        <h3>Применённые правила</h3><ul>${rules}</ul>
+        <h3>Чего не хватает</h3>${list(rec.missing_info)}
+        <h3>Почему менеджеру</h3>${list(rec.escalation_reasons)}
+        <h3>Найденная история</h3>${list(rec.history_refs)}
+        <h3>Почему агент остановился</h3><p>${esc(rec.stop_reason)}</p>
+      </div>
+    </div>
+    <div class="grid2">
+      <div><h3>Заметка менеджеру</h3><div class="draft">${esc(rec.manager_note)}</div></div>
+      <div><h3>Черновик клиенту</h3><div class="draft">${esc(rec.customer_draft)}</div><p class="meta">Клиент увидит текст только после вашего решения.</p></div>
+    </div>`;
+}
+
+function decisionHtml(d) {
+  if (d.decisions.length && d.case.state !== "AWAITING_MANAGER") {
+    const last = d.decisions[d.decisions.length - 1];
+    return `<div class="panel"><h3>Решение менеджера</h3>
+      <p>${badge("d-" + last.decision, DECISIONS[last.decision])} ${esc(last.comment)}</p>
+      ${d.authorization ? `<p class="ok">Учебное разрешение <b>${esc(d.authorization.authorization_id)}</b> создано ${esc(when(d.authorization.created_at))}</p>` : `<p class="meta">Разрешение не создавалось.</p>`}</div>`;
+  }
+  if (d.case.state !== "AWAITING_MANAGER") return "";
+  const rec = d.recommendation;
+  const suggested = ROUTE_DECISION[rec.route] || "";
+  return `<div class="panel"><h3>Решение менеджера</h3>
+    <label>Решение<select id="decision">
+      ${suggested ? "" : `<option value="">— выберите —</option>`}
+      ${Object.entries(DECISIONS).map(([k, v]) => `<option value="${k}" ${k === suggested ? "selected" : ""}>${v}${k === suggested ? " (рекомендация)" : ""}</option>`).join("")}
+    </select></label>
+    <label>Комментарий <span id="comment-hint"></span><input id="comment"></label>
+    <label>Сообщение клиенту<textarea id="message">${esc(rec.customer_draft)}</textarea></label>
+    <button class="action" id="decide">Подтвердить решение</button> <span id="decide-status"></span></div>`;
+}
+
+function customerCard(d) {
+  return `<div class="panel">
+    <h2>${esc(d.case_id)} · ${esc(d.subject)}</h2>
+    <div class="meta">Заказ ${esc(d.order_number)} · ${badge("", d.status)}</div>
+  </div>
+  <div class="panel"><h3>Переписка</h3>${dialogHtml(d.messages)}</div>
+  ${d.can_reply ? `<div class="panel"><h3>Ваш ответ</h3><textarea id="reply"></textarea><p><button class="action" id="send-reply">Отправить</button> <span id="reply-status"></span></p></div>` : ""}`;
+}
+
+function bind(d) {
+  const analyze = document.getElementById("analyze");
+  if (analyze) analyze.onclick = async () => {
+    analyze.disabled = true;
+    document.getElementById("analyze-status").textContent = "Агент читает заказ, историю и правила…";
+    try { await api(`/api/cases/${d.case.case_id}/analyze`, { method: "POST" }); await select(d.case.case_id); }
+    catch (error) { document.getElementById("analyze-status").innerHTML = `<span class="error">${esc(error.message)}</span>`; analyze.disabled = false; }
+  };
+  const decide = document.getElementById("decide");
+  if (decide) {
+    const suggested = ROUTE_DECISION[d.recommendation.route];
+    const decision = document.getElementById("decision");
+    const hint = () => (document.getElementById("comment-hint").textContent = decision.value !== suggested ? "(обязателен: решение отличается от рекомендации)" : "");
+    decision.onchange = hint; hint();
+    decide.onclick = async () => {
+      const value = decision.value;
+      const changed = value !== suggested;
+      const message = document.getElementById("message").value;
+      try {
+        await api(`/api/cases/${d.case.case_id}/decision`, { method: "POST", body: JSON.stringify({
+          decision: value, comment: document.getElementById("comment").value,
+          customer_message: changed || message !== d.recommendation.customer_draft ? message : "",
+        }) });
+        await select(d.case.case_id);
+      } catch (error) { document.getElementById("decide-status").innerHTML = `<span class="error">${esc(error.message)}</span>`; }
+    };
+  }
+  const send = document.getElementById("send-reply");
+  if (send) send.onclick = async () => {
+    try { await api(`/api/cases/${d.case_id}/reply`, { method: "POST", body: JSON.stringify({ text: document.getElementById("reply").value }) }); await select(d.case_id); }
+    catch (error) { document.getElementById("reply-status").innerHTML = `<span class="error">${esc(error.message)}</span>`; }
+  };
+}
+
+document.querySelectorAll(".toggle button").forEach((button) => (button.onclick = async () => {
+  role = button.dataset.role;
+  document.querySelectorAll(".toggle button").forEach((b) => b.classList.toggle("on", b === button));
+  document.getElementById("reset").hidden = role !== "manager";
+  await loadQueue();
+  if (selected) await select(selected);
+}));
+
+document.getElementById("reset").onclick = async () => {
+  await api("/api/admin/reset", { method: "POST" });
+  selected = null;
+  document.getElementById("card").innerHTML = `<div class="panel empty">Данные сброшены. Выберите обращение.</div>`;
+  await loadQueue();
+};
+
+loadQueue();
+</script>
+</body>
+</html>

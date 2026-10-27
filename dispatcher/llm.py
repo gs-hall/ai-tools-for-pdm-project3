@@ -55,7 +55,6 @@ def run(
         response = client.messages.create(
             model=config.AI_MODEL,
             max_tokens=4000,
-            temperature=0,
             system=SYSTEM_PROMPT,
             tools=[*tools.READ_TOOLS, SUBMIT_TOOL],
             messages=messages,

@@ -98,3 +98,21 @@ def test_key_in_manager_note_is_rejected():
 
 def test_manual_review_needs_reason():
     assert "Ручной разбор без причины передачи" in guard.validate(result("MANUAL_REVIEW"), ctx())
+
+
+def test_deny_draft_with_infinitive_is_not_read_as_approval():
+    payload = result(
+        "RECOMMEND_DENY",
+        rules_applied=[{"rule_id": "C-6", "how": "браслет подключали к телефону"}],
+        customer_draft="Возврат принять не можем: браслет подключали к телефону (правило C-6).",
+    )
+    assert guard.validate(payload, ctx()) == []
+
+
+def test_approval_inside_deny_draft_is_still_caught():
+    payload = result(
+        "RECOMMEND_DENY",
+        rules_applied=[{"rule_id": "C-6", "how": "-"}],
+        customer_draft="Возврат принят, но мы отказываем.",
+    )
+    assert "Черновик отказа содержит одобрение" in guard.validate(payload, ctx())

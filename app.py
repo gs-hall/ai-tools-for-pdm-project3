@@ -1,9 +1,11 @@
 """Flask API агента-диспетчера и одна HTML-страница.
 
-Запуск: ``python app.py`` → http://127.0.0.1:5000
+Запуск: ``python app.py`` → http://127.0.0.1:8000 (порт меняется переменной PORT;
+5000 на macOS занят приёмником AirPlay).
 Роль передаётся заголовком X-Role (customer | manager) — учебный механизм вместо авторизации.
 """
 
+import os
 from functools import wraps
 from pathlib import Path
 
@@ -120,4 +122,4 @@ def create_app(db_path: Path = config.DB_PATH, client_factory=llm.make_client) -
 
 
 if __name__ == "__main__":
-    create_app().run(debug=False)
+    create_app().run(port=int(os.environ.get("PORT", "8000")), debug=False)

@@ -27,7 +27,7 @@ def cell(text: str) -> str:
 
 
 def report(conn) -> int:
-    rows, matched = [], 0
+    rows, texts, matched = [], [], 0
     for case_id, expected in EXPECTED.items():
         run = workflow.latest_run(conn, case_id)
         result = json.loads(run["result"]) if run else {}
@@ -45,13 +45,17 @@ def report(conn) -> int:
             f"| {cell(result.get('stop_reason', ''))} | {DECISION_NAMES.get(decision[0], '—') if decision else '—'} "
             f"| {authorization[0] if authorization else '—'} |"
         )
+        texts.append(f"| {case_id} | {cell(result.get('customer_draft', '—'))} | {cell(result.get('manager_note', '—'))} |")
     model = conn.execute("SELECT model FROM agent_runs ORDER BY id DESC LIMIT 1").fetchone()
     REPORT.parent.mkdir(exist_ok=True)
     REPORT.write_text(
         "# Результаты агента по 16 обращениям\n\n"
         f"Модель: {model[0] if model else '—'}. Совпало с эталоном: **{matched} из {len(EXPECTED)}**.\n\n"
         "| Дело | Эталон | Маршрут агента | Совпадение | Правила | Почему агент остановился | Решение менеджера | Разрешение |\n"
-        "|---|---|---|---|---|---|---|---|\n" + "\n".join(rows) + "\n",
+        "|---|---|---|---|---|---|---|---|\n" + "\n".join(rows) + "\n\n"
+        "## Материалы агента по каждому делу\n\n"
+        "| Дело | Черновик клиенту | Заметка менеджеру |\n"
+        "|---|---|---|\n" + "\n".join(texts) + "\n",
         encoding="utf-8",
     )
     return matched

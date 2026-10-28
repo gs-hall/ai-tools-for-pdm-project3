@@ -94,6 +94,8 @@ def test_second_authorization_for_order_is_refused(make_app):
     })
     assert response.status_code == 409
     assert db(client).execute("SELECT count(*) FROM return_authorizations").fetchone()[0] == 0
+    events = [entry["event"] for entry in client.get("/api/cases/RC-6005", headers=MANAGER).json["audit"]]
+    assert events[-1] == "DECISION_REFUSED"
 
 
 def test_override_requires_comment_and_message(make_app):

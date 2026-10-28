@@ -168,14 +168,19 @@ def decide(conn: sqlite3.Connection, case_id: str, decision: str, comment: str =
         raise BadRequest("Решение отличается от рекомендации: нужны комментарий и сообщение клиенту")
     history = tools.history_for(conn, case["order_number"])
 
+    refusal = None
     if decision == "APPROVE":
         issued = conn.execute(
             "SELECT 1 FROM return_authorizations WHERE order_number = ?", (case["order_number"],),
         ).fetchone()
         if issued or any(record["status"] == guard.AUTHORIZED_STATUS for record in history):
-            raise Conflict("По заказу уже выдано разрешение — второе не создаётся (P-4)")
+            refusal = "По заказу уже выдано разрешение — второе не создаётся (P-4)"
     if decision == "DUPLICATE" and not history:
-        raise Conflict("В истории заказа нет записей — дело нельзя закрыть как повторное")
+        refusal = "В истории заказа нет записей — дело нельзя закрыть как повторное"
+    if refusal:
+        audit.write(conn, case_id, "manager", "DECISION_REFUSED", {"decision": decision, "reason": refusal})
+        conn.commit()
+        raise Conflict(refusal)
 
     message = customer_message or result["customer_draft"]
     authorization_id = f"RA-{case_id.split('-')[-1]}" if decision == "APPROVE" else None

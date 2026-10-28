@@ -10,9 +10,11 @@
 | Сбросить базу к стартовым данным | `.venv/bin/python -m dispatcher.db reset` или кнопка «Сбросить данные» |
 | Разобрать все новые дела | `.venv/bin/python scripts/run_queue.py` |
 | Разобрать одно дело | `.venv/bin/python scripts/run_queue.py RC-6014` |
-| Пересобрать таблицу результатов | `.venv/bin/python scripts/run_queue.py --report` |
+| Пересобрать таблицу результатов и выгрузку журнала | `.venv/bin/python scripts/run_queue.py --report` |
 | Посмотреть доступные модели | `.venv/bin/python scripts/run_queue.py --models` |
 | Прогнать другую модель в отдельную базу | `AI_MODEL=claude-haiku-5-5 DISPATCHER_DB=data/runtime/haiku.sqlite .venv/bin/python scripts/run_queue.py` |
+| Сохранить базу дампом | `.venv/bin/python -m dispatcher.db dump data/snapshot/dispatcher.sql` |
+| Восстановить базу из дампа | `.venv/bin/python -m dispatcher.db restore data/snapshot/dispatcher.sql` |
 | Запустить тесты | `.venv/bin/python -m pytest` |
 
 ## Работа менеджера
@@ -43,6 +45,7 @@ sqlite3 data/runtime/dispatcher.sqlite "SELECT case_id, model, guard_errors, fal
 | Модель объявлена устаревшей | Срок поддержки модели истекает | Выбрать новую через `--models` и указать в `AI_MODEL` |
 | Дело ушло в «Ручной разбор» с пометкой «не прошёл серверную проверку» | Модель дважды вернула результат, который сервер не принял | Ошибки — в карточке и в `agent_runs.guard_errors`; решение принимает менеджер, можно разобрать заново |
 | Решение «одобрить» отклонено (409) | По заказу уже выдано разрешение (P-4) | Закрыть как повторное или отказать |
+| `database is locked` | Две записи одновременно | База в режиме WAL с ожиданием 5 секунд; если ошибка повторяется — не держать базу открытой в другом инструменте во время прогона |
 | Ответ клиента отклонён (409) | Дело не ждёт ответа клиента | Ответ возможен только после «Запросить сведения» |
 
 ## Проверка, что секреты не утекли

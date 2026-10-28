@@ -41,6 +41,10 @@
   .r-MANUAL_REVIEW { background: #f8eedd; color: var(--manual); }
   .r-DUPLICATE_OR_PROCESSED, .d-DUPLICATE { background: #ebe8f7; color: var(--dup); }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  main > *, .card > *, .grid2 > * { min-width: 0; }
+  .table-wrap { overflow-x: auto; max-width: 100%; }
+  .log td:last-child { overflow-wrap: anywhere; }
+  .msg, .draft { overflow-wrap: anywhere; }
   .msg { border-left: 3px solid var(--line); padding: 4px 10px; margin: 8px 0; white-space: pre-wrap; }
   .msg.manager { border-color: var(--accent); }
   .msg small { display: block; color: var(--muted); }
@@ -58,6 +62,7 @@
   .log td { font-size: 12px; }
   .empty { color: var(--muted); padding: 30px; text-align: center; }
   @media (max-width: 860px) { main { grid-template-columns: 1fr; padding: 12px 16px; } .queue { position: static; max-height: 260px; } .grid2 { grid-template-columns: 1fr; } }
+  @media (max-width: 520px) { header { position: static; flex-wrap: wrap; gap: 8px 12px; padding: 10px 16px; } header h1 { flex-basis: 100%; } .panel { padding: 12px; } }
 </style>
 </head>
 <body>
@@ -95,6 +100,7 @@ let selected = null;
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const list = (items) => items?.length ? `<ul>${items.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>` : `<span class="meta">—</span>`;
 const when = (iso) => iso ? new Date(iso).toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" }) : "";
+const scrollable = (html) => `<div class="table-wrap">${html}</div>`;
 const badge = (cls, text) => `<span class="badge ${cls}">${esc(text)}</span>`;
 
 async function api(path, options = {}, as = role) {
@@ -156,13 +162,13 @@ function managerCard(d) {
     <div class="panel"><h3>Ход диалога</h3>${dialogHtml(d.dialog)}</div>
     <div class="panel">
       <h3>Заказ</h3>
-      <table><tr><th>Товар</th><th>Категория</th><th>Цена</th></tr>${items}</table>
+      ${scrollable(`<table><tr><th>Товар</th><th>Категория</th><th>Цена</th></tr>${items}</table>`)}
       <p>Доставлен ${esc(o.order.delivered_at)} · дней до обращения: <b>${o.computed.days_since_delivery}</b> из ${o.computed.return_window_days}
       ${o.computed.within_return_window ? "" : `<span class="error">— срок истёк</span>`}
       ${o.computed.high_value ? `<br><span class="error">Дорогая позиция: от ${o.computed.high_value_threshold_rub.toLocaleString("ru-RU")} ₽</span>` : ""}
       <br>Правила категории: ${esc(o.computed.category_rules.join(", "))}</p>
       <h3>История по заказу</h3>
-      <table><tr><th>Запись</th><th>Статус</th><th>Итог</th><th>Разрешение</th></tr>${history}</table>
+      ${scrollable(`<table><tr><th>Запись</th><th>Статус</th><th>Итог</th><th>Разрешение</th></tr>${history}</table>`)}
     </div>
   </div>
   <div class="panel">
@@ -175,8 +181,8 @@ function managerCard(d) {
   </div>
   ${rec ? decisionHtml(d) : ""}
   <div class="panel"><details><summary>Журнал (${d.audit.length})</summary>
-    <table class="log"><tr><th>Время</th><th>Кто</th><th>Событие</th><th>Подробности</th></tr>
-    ${d.audit.map((a) => `<tr><td>${esc(when(a.ts))}</td><td>${esc(a.actor)}</td><td>${esc(a.event)}</td><td>${esc(JSON.stringify(a.details))}</td></tr>`).join("")}</table>
+    ${scrollable(`<table class="log"><tr><th>Время</th><th>Кто</th><th>Событие</th><th>Подробности</th></tr>
+    ${d.audit.map((a) => `<tr><td>${esc(when(a.ts))}</td><td>${esc(a.actor)}</td><td>${esc(a.event)}</td><td>${esc(JSON.stringify(a.details))}</td></tr>`).join("")}</table>`)}
   </details></div>`;
 }
 
@@ -187,7 +193,7 @@ function recommendationHtml(rec, run) {
     <p>${badge("r-" + rec.route, ROUTES[rec.route])} ${esc(rec.summary)}</p>
     ${run.fallback ? `<p class="error">Результат модели не прошёл серверную проверку: ${esc(run.guard_errors.join("; "))}</p>` : `<p class="meta">Модель ${esc(run.model)} · прочитано: ${esc(run.tools_used.join(", "))} · проверка сервера пройдена${run.guard_errors.length ? ` со 2-й попытки` : ""}</p>`}
     <div class="grid2">
-      <div><h3>Найденные факты</h3><table><tr><th>Факт</th><th>Значение</th><th>Источник</th></tr>${facts}</table></div>
+      <div><h3>Найденные факты</h3>${scrollable(`<table><tr><th>Факт</th><th>Значение</th><th>Источник</th></tr>${facts}</table>`)}</div>
       <div>
         <h3>Применённые правила</h3><ul>${rules}</ul>
         <h3>Чего не хватает</h3>${list(rec.missing_info)}

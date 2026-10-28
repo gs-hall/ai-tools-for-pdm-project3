@@ -162,6 +162,10 @@ SQLite-файл `data/runtime/dispatcher.sqlite`:
 
 Сброс (`POST /api/admin/reset` или `python -m dispatcher.db reset`) пересоздаёт базу из стартовых файлов.
 
+База работает в режиме WAL с `busy_timeout` 5 секунд: Flask обслуживает запросы в нескольких потоках, у каждого запроса своё соединение, и запись не падает с «database is locked», пока идёт другая.
+
+Состояние после прогона и решений сохранено SQL-дампом `data/snapshot/dispatcher.sql` (`python -m dispatcher.db dump …`). `python -m dispatcher.db restore data/snapshot/dispatcher.sql` восстанавливает его — так результат можно проверить в интерфейсе без ключа API.
+
 ## Журнал
 
 Каждое событие пишет номер дела, кто действовал, тип события и подробности:
@@ -173,6 +177,9 @@ SQLite-файл `data/runtime/dispatcher.sqlite`:
 | `AGENT_RESULT` | Маршрут, прошла ли проверка, ошибки |
 | `STATE_CHANGE` | Из какого состояния в какое |
 | `MANAGER_DECISION` | Рекомендация, решение, комментарий |
+| `DECISION_REFUSED` | Решение, которое сервер отклонил, и причина (например, второе разрешение по заказу) |
+| `ACCESS_DENIED` | Роль попыталась выполнить недоступное ей действие |
+| `LLM_ERROR` | Модель недоступна; текст ошибки без ключа |
 | `AUTHORIZATION_CREATED` | Номер разрешения |
 | `CUSTOMER_REPLY` | Ответ клиента получен |
 

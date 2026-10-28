@@ -6,6 +6,7 @@
 import json
 import sqlite3
 import sys
+from contextlib import closing
 from pathlib import Path
 
 from dispatcher import audit
@@ -104,11 +105,16 @@ CREATE TABLE audit_log (
 """
 
 
+BUSY_TIMEOUT_MS = 5000
+
+
 def connect(path: Path = DB_PATH) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path, check_same_thread=False)
+    conn = sqlite3.connect(path, timeout=BUSY_TIMEOUT_MS / 1000)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
+    conn.execute("PRAGMA journal_mode = WAL")
     return conn
 
 
@@ -116,13 +122,17 @@ def load_json(name: str) -> dict:
     return json.loads((DATA_DIR / name).read_text(encoding="utf-8"))
 
 
-def reset(conn: sqlite3.Connection) -> dict:
-    """Пересоздаёт базу из стартовых файлов. Стартовые файлы не меняются."""
+def drop_all(conn: sqlite3.Connection) -> None:
     tables = [row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")]
     conn.execute("PRAGMA foreign_keys = OFF")
     for table in tables:
         conn.execute(f"DROP TABLE {table}")
     conn.execute("PRAGMA foreign_keys = ON")
+
+
+def reset(conn: sqlite3.Connection) -> dict:
+    """Пересоздаёт базу из стартовых файлов. Стартовые файлы не меняются."""
+    drop_all(conn)
     conn.executescript(SCHEMA)
 
     orders = load_json("orders.json")["orders"]
@@ -177,7 +187,38 @@ def ensure_ready(conn: sqlite3.Connection) -> None:
         reset(conn)
 
 
+def dump(conn: sqlite3.Connection, path: Path) -> int:
+    """Сохраняет базу текстовым SQL-дампом — его можно положить в репозиторий и восстановить без ключа API."""
+    lines = list(conn.iterdump())
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return len(lines)
+
+
+def restore(conn: sqlite3.Connection, path: Path) -> dict:
+    """Заменяет содержимое базы дампом."""
+    drop_all(conn)
+    conn.execute("PRAGMA foreign_keys = OFF")
+    conn.executescript(path.read_text(encoding="utf-8"))
+    conn.execute("PRAGMA foreign_keys = ON")
+    return {table: conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
+            for table in ("cases", "agent_runs", "decisions", "return_authorizations", "audit_log")}
+
+
+USAGE = """Использование:
+  python -m dispatcher.db reset          сбросить базу к стартовым данным
+  python -m dispatcher.db dump ФАЙЛ      сохранить базу SQL-дампом
+  python -m dispatcher.db restore ФАЙЛ   восстановить базу из дампа"""
+
+
 if __name__ == "__main__":
-    if sys.argv[1:] != ["reset"]:
-        sys.exit("Использование: python -m dispatcher.db reset")
-    print(reset(connect()))
+    command, *rest = sys.argv[1:] or [""]
+    with closing(connect()) as connection:
+        if command == "reset" and not rest:
+            print(reset(connection))
+        elif command == "dump" and len(rest) == 1:
+            print(f"Записано строк: {dump(connection, Path(rest[0]))}")
+        elif command == "restore" and len(rest) == 1:
+            print(restore(connection, Path(rest[0])))
+        else:
+            sys.exit(USAGE)

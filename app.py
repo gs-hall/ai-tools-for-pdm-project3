@@ -6,6 +6,9 @@
 """
 
 import os
+import signal
+import sys
+from contextlib import closing
 from functools import wraps
 from pathlib import Path
 
@@ -23,12 +26,17 @@ def create_app(db_path: Path = config.DB_PATH, client_factory=llm.make_client) -
     app.config["DB_PATH"] = Path(db_path)
     app.json.ensure_ascii = False
 
-    with db.connect(app.config["DB_PATH"]) as conn:
+    with closing(db.connect(app.config["DB_PATH"])) as conn:
         db.ensure_ready(conn)
 
     @app.before_request
     def open_db():
         g.conn = db.connect(app.config["DB_PATH"])
+
+    @app.after_request
+    def no_cache(response):
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     @app.teardown_request
     def close_db(_error):
@@ -121,5 +129,11 @@ def create_app(db_path: Path = config.DB_PATH, client_factory=llm.make_client) -
     return app
 
 
+def stop(_signum, _frame):
+    """По сигналу остановки выходим штатно: открытые соединения закрываются в teardown_request."""
+    sys.exit(0)
+
+
 if __name__ == "__main__":
+    signal.signal(signal.SIGTERM, stop)
     create_app().run(port=int(os.environ.get("PORT", "8000")), debug=False)
